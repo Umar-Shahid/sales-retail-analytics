@@ -1,0 +1,23 @@
+# Virtual Environment — never commit this
+venv/
+
+# Data files — too large for GitHub
+data/raw/
+data/processed/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment files
+.env
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# SPSS output
+*.spv
+*.spo
