@@ -1,0 +1,305 @@
+---
+title: "Notebook 07 — R EDA with ggplot2"
+author: "Muhammad Umar Shahid"
+date: "`r Sys.Date()`"
+output: html_notebook
+---
+
+## Install & Load Libraries
+
+| Package | Purpose |
+|---|---|
+| `S7` | Object-oriented system required by ggplot2 4.0+ — must install as binary on Windows |
+| `tidyverse` | Core suite combining ggplot2, dplyr, readr, tidyr, purrr — equivalent to pandas + matplotlib + seaborn in Python |
+| `scales` | Formats chart axes as $1,000 or 10% — used in every ggplot2 chart |
+| `lubridate` | Parses and handles date columns like Order Date cleanly |
+| `ggthemes` | Extra professional themes for ggplot2 charts |
+
+
+```{r}
+options(timeout = 300)
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+
+packages <- c("S7", "tidyverse", "scales", "lubridate", "ggthemes")
+
+for (pkg in packages) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    cat("📦 Installing:", pkg, "\n")
+    install.packages(pkg, type = "binary")
+  } else {
+    cat("✅ Already installed:", pkg, "\n")
+  }
+}
+
+library(tidyverse)
+library(scales)
+library(lubridate)
+library(ggthemes)
+
+cat("\n✅ All libraries loaded successfully\n")
+```
+## Load Dataset
+
+`read_csv()` is R's equivalent of `pd.read_csv()`. `glimpse()` is R's equivalent of `df.info()` — shows column types and first few values of every column at a glance.
+
+```{r}
+df <- read_csv("../data/processed/superstore_clean.csv")
+
+cat("Rows   :", nrow(df), "\n")
+cat("Columns:", ncol(df), "\n")
+
+glimpse(df)
+```
+## Data Prep
+
+`mutate()` modifies or adds columns — same as `df['col'] =` in Python. `as.factor()` converts text columns to categorical — same as `pd.Categorical()`. The `%>%` pipe chains operations together, same idea as pandas method chaining. Backticks are required around column names that contain spaces.
+
+```{r}
+df <- df %>%
+  mutate(
+    Order.Date    = as.Date(`Order Date`,  format = "%Y-%m-%d"),
+    Segment       = as.factor(Segment),
+    Region        = as.factor(Region),
+    Category      = as.factor(Category),
+    `Ship Mode`   = as.factor(`Ship Mode`),
+    `Profit Tier` = as.factor(`Profit Tier`)
+  )
+
+cat("✅ Data types fixed\n")
+cat("Segments  :", levels(df$Segment),  "\n")
+cat("Regions   :", levels(df$Region),   "\n")
+cat("Categories:", levels(df$Category), "\n")
+```
+## Chart 1: Total Sales by Category
+
+This chart shows which product category generates the most revenue. Key functions used:
+
+- **`geom_col()`** — draws bar charts from pre-summarised data
+- **`reorder()`** — sorts bars by value so the chart reads cleanly
+- **`coord_flip()`** — flips axes for horizontal bars
+- **`dollar_format()`** — formats axis labels as currency e.g. $500K
+- **`ggsave()`** — saves chart to file, equivalent to `plt.savefig()` in Python
+
+```{r fig.width=8, fig.height=4}
+chart1 <- df %>%
+  group_by(Category) %>%
+  summarise(Total_Sales = sum(Sales, na.rm = TRUE)) %>%
+  ggplot(aes(x = reorder(Category, Total_Sales),
+             y = Total_Sales,
+             fill = Category)) +
+  geom_col(show.legend = FALSE, width = 0.6) +
+  geom_text(aes(label = dollar(Total_Sales, scale = 0.001, suffix = "K")),
+            hjust = -0.1, size = 4) +
+  coord_flip() +
+  scale_y_continuous(
+    labels = dollar_format(scale = 0.001, suffix = "K"),
+    expand = expansion(mult = c(0, 0.15))
+  ) +
+  scale_fill_manual(values = c(
+    "Furniture"       = "#4e79a7",
+    "Office Supplies" = "#f28e2b",
+    "Technology"      = "#59a14f"
+  )) +
+  labs(title    = "Total Sales by Category",
+       subtitle = "Global Superstore | All Years",
+       x = NULL, y = "Total Sales (USD)") +
+  theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face = "bold"))
+
+print(chart1)
+ggsave("../reports/r_chart1_sales_category.png",
+       chart1, width = 8, height = 4, dpi = 150)
+cat("✅ Saved: r_chart1_sales_category.png\n")
+```
+## Chart 2: Profit Distribution by Region
+
+A box plot is ideal here because it shows the **median**, **interquartile range**, and **outliers** for each region in one view — much more informative than a simple bar chart of averages. Key functions:
+
+- **`geom_boxplot()`** — draws the box plot per group
+- **`geom_hline(yintercept = 0)`** — adds a red dashed break-even line
+- **`scale_fill_brewer()`** — applies a pre-built accessible color palette
+
+```{r fig.width=8, fig.height=4}
+chart2 <- df %>%
+  filter(`Profit Margin %` > -100) %>%
+  ggplot(aes(x = reorder(Region, Profit, median),
+             y = Profit,
+             fill = Region)) +
+  geom_boxplot(outlier.size  = 0.5,
+               outlier.alpha = 0.3,
+               show.legend   = FALSE) +
+  geom_hline(yintercept = 0, linetype = "dashed",
+             color = "red", linewidth = 0.7) +
+  coord_flip() +
+  scale_y_continuous(labels = dollar_format()) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(title    = "Profit Distribution by Region",
+       subtitle = "Red dashed line = break-even point",
+       x = NULL, y = "Profit (USD)") +
+  theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face = "bold"))
+
+print(chart2)
+ggsave("../reports/r_chart2_profit_region.png",
+       chart2, width = 8, height = 4, dpi = 150)
+cat("✅ Saved: r_chart2_profit_region.png\n")
+```
+## Chart 3: Monthly Sales Trend
+
+This chart tracks how total sales evolved over time and adds a smoothed trend line to remove noise. Key functions:
+
+- **`floor_date()`** from lubridate — rounds dates down to month start, equivalent to `pd.Grouper(freq='M')` in pandas
+- **`geom_line()`** — draws the actual monthly values
+- **`geom_smooth(method = "loess")`** — adds a smoothed trend line with confidence band, equivalent to seaborn's `regplot`
+
+```{r fig.width=10, fig.height=4}
+chart3 <- df %>%
+  mutate(YearMonth = floor_date(Order.Date, "month")) %>%
+  group_by(YearMonth) %>%
+  summarise(Monthly_Sales = sum(Sales, na.rm = TRUE)) %>%
+  ggplot(aes(x = YearMonth, y = Monthly_Sales)) +
+  geom_line(color = "#4e79a7", linewidth = 1) +
+  geom_smooth(method   = "loess", se = TRUE,
+              color    = "red",
+              linetype = "dashed", linewidth = 0.7) +
+  scale_x_date(date_breaks = "6 months",
+               date_labels = "%b %Y") +
+  scale_y_continuous(labels = dollar_format(scale = 0.001, suffix = "K")) +
+  labs(title    = "Monthly Sales Trend",
+       subtitle = "Blue = actual  |  Red dashed = smoothed trend",
+       x = NULL, y = "Monthly Sales (USD)") +
+  theme_minimal(base_size = 13) +
+  theme(plot.title  = element_text(face = "bold"),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(chart3)
+ggsave("../reports/r_chart3_monthly_trend.png",
+       chart3, width = 10, height = 4, dpi = 150)
+cat("✅ Saved: r_chart3_monthly_trend.png\n")
+```
+
+## Chunk 7 — Chart 4: Discount vs Profit Margin %
+
+This scatter plot investigates whether higher discounts lead to lower profit margins — a critical business question. Key functions:
+
+- **`geom_point(alpha = 0.3)`** — draws points with transparency to handle overplotting
+- **`geom_smooth(method = "lm")`** — adds a linear regression line per category, equivalent to seaborn's `lmplot`
+- **`percent_format()`** — formats x-axis values as percentages e.g. 20%
+
+```{r fig.width=9, fig.height=5}
+chart4 <- df %>%
+  filter(`Profit Margin %` > -150) %>%
+  ggplot(aes(x     = Discount,
+             y     = `Profit Margin %`,
+             color = Category)) +
+  geom_point(alpha = 0.3, size = 1) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 1) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
+  scale_x_continuous(labels = percent_format()) +
+  scale_color_manual(values = c(
+    "Furniture"       = "#4e79a7",
+    "Office Supplies" = "#f28e2b",
+    "Technology"      = "#59a14f"
+  )) +
+  labs(title    = "Discount vs Profit Margin % by Category",
+       subtitle = "Each line = linear trend per category",
+       x        = "Discount Rate",
+       y        = "Profit Margin %",
+       color    = "Category") +
+  theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face = "bold"))
+
+print(chart4)
+ggsave("../reports/r_chart4_discount_profit.png",
+       chart4, width = 9, height = 5, dpi = 150)
+cat("✅ Saved: r_chart4_discount_profit.png\n")
+```
+
+## Chart 5: Sales by Region and Segment
+
+This grouped bar chart compares sales performance across all four regions broken down by customer segment. Key functions:
+
+- **`position = "dodge"`** — places bars side by side instead of stacking
+- **`.groups = "drop"`** — removes grouping after `summarise()`, good practice to avoid unexpected behaviour
+- **`scale_fill_brewer(palette = "Set1")`** — applies a colorblind-friendly categorical palette
+
+```{r fig.width=9, fig.height=5}
+chart5 <- df %>%
+  group_by(Region, Segment) %>%
+  summarise(Total_Sales = sum(Sales, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(x = Region, y = Total_Sales, fill = Segment)) +
+  geom_col(position = "dodge", width = 0.7) +
+  scale_y_continuous(labels = dollar_format(scale = 0.001, suffix = "K")) +
+  scale_fill_manual(values = c(
+    "Consumer"    = "#4e79a7",
+    "Corporate"   = "#59a14f",
+    "Home Office" = "#f28e2b"
+  )) +
+  labs(title    = "Sales by Region and Customer Segment",
+       x = NULL, y = "Total Sales (USD)", fill = "Segment") +
+  theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face = "bold"))
+
+print(chart5)
+ggsave("../reports/r_chart5_segment_region.png",
+       chart5, width = 9, height = 5, dpi = 150)
+cat("✅ Saved: r_chart5_segment_region.png\n")
+```
+
+## Chart 6: Profit Tier Distribution
+
+A donut chart shows the proportion of orders falling into each profit tier — a column engineered in Notebook 01. Key functions:
+
+- **`count()`** — equivalent to `value_counts()` in pandas
+- **`coord_polar(theta = "y")`** — converts bar chart into a pie/donut
+- **`xlim(0.5, 2.5)`** — creates the donut hole by limiting x-axis range
+- **`position_stack(vjust = 0.5)`** — centres labels inside each segment
+
+```{r fig.width=7, fig.height=6}
+tier_counts <- df %>%
+  count(`Profit Tier`) %>%
+  mutate(
+    pct   = n / sum(n),
+    label = paste0(`Profit Tier`, "\n", percent(pct, accuracy = 0.1))
+  )
+
+chart6 <- ggplot(tier_counts,
+                 aes(x = 2, y = n, fill = `Profit Tier`)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  xlim(0.5, 2.5) +
+  geom_text(aes(label = label),
+            position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_brewer(palette = "RdYlGn") +
+  labs(title    = "Order Distribution by Profit Tier",
+       subtitle = "Engineered column from Notebook 01",
+       fill     = "Profit Tier") +
+  theme_void(base_size = 13) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))
+
+print(chart6)
+ggsave("../reports/r_chart6_profit_tier.png",
+       chart6, width = 7, height = 6, dpi = 150)
+cat("✅ Saved: r_chart6_profit_tier.png\n")
+```
+
+## Chunk 10 — Summary
+
+All 6 charts have been generated and saved to the `../reports/` directory using `ggsave()`. Each chart was built using **ggplot2's layered grammar of graphics** — where you start with data, map variables to aesthetics (`aes()`), then add geometric layers (`geom_*()`) one at a time.
+
+| Chart | File | Insight |
+|---|---|---|
+| Sales by Category | r_chart1_sales_category.png | Technology leads in revenue |
+| Profit by Region | r_chart2_profit_region.png | Regional profit spread and outliers |
+| Monthly Trend | r_chart3_monthly_trend.png | Seasonal sales patterns |
+| Discount vs Profit | r_chart4_discount_profit.png | Discount impact on margins |
+| Region x Segment | r_chart5_segment_region.png | Segment performance by region |
+| Profit Tier | r_chart6_profit_tier.png | Order profitability distribution |
+
+
+```{r}
+cat("========================================\n")
+cat("  Notebook 07 — R EDA Complete\n")
+cat("========================================\n")
+cat("→ Next: app.R — Shiny Dashboard\n")
+```
