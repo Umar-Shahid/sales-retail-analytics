@@ -1,0 +1,14 @@
+{
+  "id": "muhammadumarshahid/global-superstore-eda-sales-analysis",
+  "title": "Global Superstore EDA Sales Analysis",
+  "code_file": "02_eda_upload.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": false,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": ["muhammadumarshahid/global-superstore-cleaned"],
+  "competition_sources": [],
+  "kernel_sources": []
+}
